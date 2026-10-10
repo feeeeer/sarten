@@ -6,7 +6,7 @@ El diseño está inspirado en las páginas de producto de Apple: tipografía gra
 
 ## Qué hace
 
-- **Recetario**: fotos, ingredientes que se van tachando, pasos y el vídeo original al lado.
+- **Recetario**: fotos, ingredientes que se van tachando, pasos y el vídeo original al lado. Las cantidades se recalculan si cambias las raciones.
 - **Importar con IA** desde:
   - **TikTok**: lee la descripción del vídeo.
   - **YouTube**: Gemini ve el vídeo entero desde el enlace.
@@ -14,7 +14,8 @@ El diseño está inspirado en las páginas de producto de Apple: tipografía gra
   - **Instagram**: lee la descripción del post cuando Instagram lo deja.
   - **Un vídeo subido**: Gemini lo ve y lo escucha. Es la solución cuando la receta solo se cuenta hablando.
 - **Semana**: planificas desayuno, comida, merienda y cena; marcas lo que has cocinado; *Rellenar huecos* propone comidas y cenas empezando por lo que hace más tiempo que no haces.
-- **Lista de la compra**: junta los ingredientes de lo planificado y de las recetas que añadas, suma los repetidos (`200 g de arroz` + `0,1 kg de arroz` → `300 g de arroz`) y se copia para mandarla por WhatsApp.
+- **Lista de la compra**: junta los ingredientes de lo planificado y de las recetas que añadas, suma los repetidos (`200 g de arroz` + `0,1 kg de arroz` → `300 g de arroz`), escala las cantidades a las personas que elijas y se copia para mandarla por WhatsApp.
+- **App en el móvil (PWA)**: se instala en la pantalla de inicio, abre a pantalla completa y funciona sin conexión.
 - **Cuentas**: con Supabase, cada persona tiene su recetario, su calendario y sus fotos, privados.
 
 ## Tecnologías
@@ -45,7 +46,9 @@ index.html            Página única (router por hash: #/, #/explorar, #/semana,
 css/styles.css        Todo el diseño
 js/app.js             Vistas y navegación
 js/store.js           Datos: Supabase o, si no está configurado, localStorage (modo demo)
-js/lista.js           Junta y suma ingredientes para la lista de la compra
+js/lista.js           Junta, suma y escala ingredientes (lista de la compra y raciones)
+manifest.webmanifest  Nombre, iconos y accesos directos de la app instalada
+sw.js                 Service worker: guarda la app para abrirla sin conexión
 js/config.js          URL y clave pública de Supabase
 api/importar.js       Función serverless: enlace / vídeo / texto → receta con IA
 api/fotos.js          Función serverless: busca fotos del plato en Pexels
@@ -97,7 +100,17 @@ Antes de abrirla a más gente:
 - **Vídeos subidos**: Vercel limita las peticiones a 4,5 MB, así que en producción solo pasarán vídeos muy cortos. La solución es subirlos primero a Supabase Storage y que la función los lea de ahí.
 - **Cuota de la IA**: todos los usuarios gastan tus claves de Gemini y Pexels. Con pocos usuarios sobra la capa gratuita; si crece, habría que poner un límite por usuario.
 
+## Instalarla en el móvil
+
+El navegador solo deja instalar webs servidas por **https** (o desde `localhost`), así que en el móvil se instala desde la versión publicada en Vercel:
+
+- **iPhone (Safari)**: botón Compartir → *Añadir a pantalla de inicio*.
+- **Android (Chrome)**: menú ⋮ → *Instalar aplicación*.
+- **Mac (Chrome)**: en `localhost:3000`, icono de instalar en la barra de direcciones. Sirve para probarla ya.
+
+El service worker pide siempre la versión nueva a la red y solo usa lo guardado si no hay conexión. Así cada despliegue se ve al momento, sin tener que tocar ninguna versión de caché.
+
 ## Ideas para seguir
 
-- Instalarla como app en el móvil (PWA).
-- Escalar las cantidades de la lista según las raciones.
+- Raciones distintas para cada comida del calendario.
+- Barra de pestañas abajo cuando se usa como app instalada.

@@ -1,0 +1,21 @@
+{
+  "name": "Sartén",
+  "short_name": "Sartén",
+  "description": "Mi recetario: recetas, plan de la semana y lista de la compra.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbfbfd",
+  "theme_color": "#fbfbfd",
+  "icons": [
+    { "src": "img/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "img/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Semana", "url": "./#/semana", "icons": [{ "src": "img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Lista de la compra", "url": "./#/lista", "icons": [{ "src": "img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Añadir receta", "url": "./#/nueva", "icons": [{ "src": "img/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

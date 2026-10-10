@@ -455,3 +455,15 @@ select {
   .nav__links { gap: 16px; }
   .auth__form--cuenta { grid-template-columns: 1fr; }
 }
+
+/* ---------- raciones ---------- */
+
+.ingredientes__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.ingredientes__head h2 { margin-bottom: 0; }
+.raciones { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text-2); }
+.raciones .btn--icono { width: 36px; min-height: 36px; font-size: 18px; }
+.raciones span { min-width: 9ch; text-align: center; }
+.lista__personas { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.lista__personas label { font-weight: 600; }
+.lista__personas select { width: auto; }
+.lista__personas p { flex-basis: 100%; margin: 0; font-size: 14px; color: var(--text-2); }

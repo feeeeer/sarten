@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import { MOMENTOS, TIPOS } from './store.js';
-import { juntarIngredientes } from './lista.js';
+import { juntarIngredientes, escalar } from './lista.js';
 
 const $app = document.getElementById('app');
 const $auth = document.getElementById('authBtn');
@@ -239,7 +239,15 @@ async function vistaReceta(id) {
 
       <div class="receta__body wrap">
         <section class="ingredientes">
-          <h2>Ingredientes</h2>
+          <div class="ingredientes__head">
+            <h2>Ingredientes</h2>
+            ${r.raciones ? `
+            <div class="raciones" role="group" aria-label="Raciones">
+              <button type="button" class="btn btn--secondary btn--icono" data-raciones="-1" aria-label="Menos raciones">−</button>
+              <span id="nRaciones" aria-live="polite">${r.raciones} ${r.raciones === 1 ? 'ración' : 'raciones'}</span>
+              <button type="button" class="btn btn--secondary btn--icono" data-raciones="1" aria-label="Más raciones">+</button>
+            </div>` : ''}
+          </div>
           <ul>${r.ingredientes.map((x, i) => `
             <li><label><input type="checkbox" id="ing${i}"><span>${esc(x)}</span></label></li>`).join('')}</ul>
         </section>
@@ -257,6 +265,12 @@ async function vistaReceta(id) {
     </article>`;
 
   document.title = `${r.titulo} | Sartén`;
+  let raciones = r.raciones;
+  $app.querySelectorAll('[data-raciones]').forEach(b => b.addEventListener('click', () => {
+    raciones = Math.max(1, raciones + Number(b.dataset.raciones));
+    document.getElementById('nRaciones').textContent = `${raciones} ${raciones === 1 ? 'ración' : 'raciones'}`;
+    $app.querySelectorAll('.ingredientes li span').forEach((el, i) => { el.textContent = escalar(r.ingredientes[i], raciones / r.raciones); });
+  }));
   document.getElementById('hechaHoy').addEventListener('click', async () => {
     await store.addComida({ fecha: hoy(), momento: momentoAhora(), receta_id: r.id, hecha: true });
     toast('Apuntada en el calendario de hoy');
@@ -630,7 +644,11 @@ async function vistaLista(q) {
   const planificadas = plan.filter(c => !c.hecha && c.fecha >= h && porId.has(c.receta_id)).map(c => porId.get(c.receta_id));
   const extras = extrasLista().map(id => porId.get(id)).filter(Boolean);
   const incluidas = [...planificadas, ...extras];
-  const items = juntarIngredientes(incluidas.flatMap(r => r.ingredientes.map(texto => ({ texto, receta: r.titulo }))));
+  // 0 = cantidades tal cual vienen en cada receta; N = cada comida escalada a N personas.
+  const clavePersonas = `sarten.lista.personas.${usuario?.id ?? 'demo'}`;
+  const personas = Number(localStorage.getItem(clavePersonas)) || 0;
+  const factor = r => (personas && r.raciones ? personas / r.raciones : 1);
+  const items = juntarIngredientes(incluidas.flatMap(r => r.ingredientes.map(texto => ({ texto, receta: r.titulo, factor: factor(r) }))));
 
   const claveMarcas = `sarten.lista.marcados.${usuario?.id ?? 'demo'}.${lunes}`;
   const marcados = new Set(JSON.parse(localStorage.getItem(claveMarcas) ?? '[]'));
@@ -644,6 +662,14 @@ async function vistaLista(q) {
     </section>
 
     <section class="lista wrap wrap--narrow">${incluidas.length ? `
+      <div class="lista__personas">
+        <label for="personas">Cantidades para</label>
+        <select id="personas">
+          <option value="0">lo que diga cada receta</option>
+          ${[1, 2, 3, 4, 5, 6, 8].map(n => `<option value="${n}" ${n === personas ? 'selected' : ''}>${n} ${n === 1 ? 'persona' : 'personas'} por comida</option>`).join('')}
+        </select>
+        ${personas && incluidas.some(r => !r.raciones) ? '<p>Las recetas que no dicen para cuántas raciones son se quedan como están.</p>' : ''}
+      </div>
       <div class="lista__origen">
         ${resumen.length ? `<p><strong>De la semana:</strong> ${resumen.map(r => esc(r.titulo)).join(', ')}.</p>` : ''}
         ${extras.length ? `<p><strong>Sueltas:</strong></p>
@@ -672,6 +698,10 @@ async function vistaLista(q) {
     c.checked ? marcados.add(c.dataset.clave) : marcados.delete(c.dataset.clave);
     localStorage.setItem(claveMarcas, JSON.stringify([...marcados]));
   }));
+  document.getElementById('personas')?.addEventListener('change', e => {
+    localStorage.setItem(clavePersonas, e.target.value);
+    vistaLista(q);
+  });
   $app.querySelectorAll('[data-quitar-extra]').forEach(b => b.addEventListener('click', () => {
     guardarExtras(extrasLista().filter(id => id !== b.dataset.quitarExtra));
     vistaLista(q);
@@ -803,3 +833,5 @@ pintarAuth();
 window.addEventListener('hashchange', router);
 router();
 rellenarFotos();
+// Instalable como app y disponible sin conexión (solo en https o localhost).
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(err => console.warn('Sin modo offline:', err));

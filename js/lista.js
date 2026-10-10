@@ -1,4 +1,4 @@
-// Junta los ingredientes de varias recetas en una lista de la compra.
+// Junta los ingredientes de varias recetas en una lista de la compra y escala cantidades por raciones.
 // "200 g de arroz" + "0,1 kg de arroz" → "300 g de arroz"; lo que no se entiende se deja tal cual.
 // ponytail: no convierte entre unidades distintas (2 tazas vs 300 g se quedan en dos líneas).
 
@@ -41,25 +41,43 @@ export function leerIngrediente(texto) {
   return { cantidad, unidad, nombre: nombre.trim() };
 }
 
-const redondear = n => Math.round(n * 100) / 100;
-const formatoNumero = n => String(redondear(n)).replace('.', ',');
+const CONTABLES = ['', 'diente', 'lata', 'sobre', 'loncha', 'rebanada'];
 
-function formato({ cantidad, unidad, nombre }) {
+// Redondeos de cocina: 333,3 g → 335 g; 0,67 cucharadas → 0,75. En la compra, 1,5 huevos → 2.
+function redondear(n, unidad, compra) {
+  if (unidad === 'g' || unidad === 'ml') return n < 10 ? Math.round(n * 10) / 10 : n < 100 ? Math.round(n) : Math.round(n / 5) * 5;
+  if (compra && CONTABLES.includes(unidad)) return Math.ceil(n - 1e-9);
+  return Math.max(0.25, Math.round(n * 4) / 4);
+}
+const formatoNumero = n => String(Math.round(n * 100) / 100).replace('.', ',');
+
+function formato({ cantidad, unidad, nombre }, compra = false) {
+  cantidad = redondear(cantidad, unidad, compra);
   // 1500 g → 1,5 kg; 1200 ml → 1,2 l
   if (unidad === 'g' && cantidad >= 1000) [cantidad, unidad] = [cantidad / 1000, 'kg'];
   if (unidad === 'ml' && cantidad >= 1000) [cantidad, unidad] = [cantidad / 1000, 'l'];
-  const plural = cantidad > 1 && /^(cucharada|cucharadita|taza|vaso|diente|lata|sobre|loncha|rebanada|pizca)$/.test(unidad) ? 's' : '';
+  const plural = cantidad !== 1 && /^(cucharada|cucharadita|taza|vaso|diente|lata|sobre|loncha|rebanada|pizca)$/.test(unidad) ? 's' : '';
   if (unidad) return `${formatoNumero(cantidad)} ${unidad}${plural} de ${nombre}`;
   // "2 cebolla" → "2 cebollas" (solo palabras acabadas en vocal; el resto se deja como está)
   if (cantidad > 1) nombre = nombre.replace(/^(\p{L}*[aeiouáéó])(?=\s|$)/iu, '$1s');
+  // y al revés al bajar de 1: "1 huevos" → "1 huevo" (shortcut: solo palabras en vocal + s; "panes" se queda igual)
+  else nombre = nombre.replace(/^(\p{L}*[aeiouáéó])s(?=\s|$)/iu, '$1');
   return `${formatoNumero(cantidad)} ${nombre}`;
 }
 
-// ingredientes: [{ texto, receta }] → [{ clave, texto, recetas: [títulos] }] ordenado por nombre
+// "400 g de carne" × 0,5 → "200 g de carne". Si no entiende la cantidad, lo deja igual.
+export function escalar(texto, factor) {
+  const p = factor !== 1 && leerIngrediente(texto);
+  return p ? formato({ ...p, cantidad: p.cantidad * factor }) : texto;
+}
+
+// ingredientes: [{ texto, receta, factor? }] → [{ clave, texto, recetas: [títulos] }] ordenado por nombre.
+// factor escala la cantidad (raciones que vas a hacer / raciones de la receta).
 export function juntarIngredientes(ingredientes) {
   const grupos = new Map();
-  for (const { texto, receta } of ingredientes) {
+  for (const { texto, receta, factor = 1 } of ingredientes) {
     const p = leerIngrediente(texto);
+    if (p) p.cantidad *= factor;
     const clave = p ? `${normalizar(p.nombre)}|${p.unidad}` : normalizar(texto);
     const g = grupos.get(clave);
     if (!g) grupos.set(clave, { clave, p, texto: texto.trim(), recetas: [receta] });
@@ -69,6 +87,6 @@ export function juntarIngredientes(ingredientes) {
     }
   }
   return [...grupos.values()]
-    .map(g => ({ clave: g.clave, texto: g.p ? formato(g.p) : g.texto, recetas: g.recetas }))
+    .map(g => ({ clave: g.clave, texto: g.p ? formato(g.p, true) : g.texto, recetas: g.recetas }))
     .sort((a, b) => a.clave.localeCompare(b.clave, 'es'));
 }
