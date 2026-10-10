@@ -88,18 +88,6 @@ La clave *anon* es pública por diseño. Lo que protege los datos son las polít
 
 Las recetas que hayas guardado en modo demo se quedan en ese navegador y no pasan a tu cuenta.
 
-## Publicar (Vercel)
-
-1. Sube el repo a GitHub (el `.gitignore` ya excluye `.env`).
-2. En https://vercel.com → *Add New Project* → importa el repo. No hace falta configurar framework ni build.
-3. En *Settings → Environment Variables* añade `GEMINI_API_KEY`, `PEXELS_API_KEY`, `SUPABASE_URL` y `SUPABASE_ANON_KEY`.
-4. Cada `git push` vuelve a desplegar.
-
-Antes de abrirla a más gente:
-
-- **Vídeos subidos**: Vercel limita las peticiones a 4,5 MB, así que en producción solo pasarán vídeos muy cortos. La solución es subirlos primero a Supabase Storage y que la función los lea de ahí.
-- **Cuota de la IA**: todos los usuarios gastan tus claves de Gemini y Pexels. Con pocos usuarios sobra la capa gratuita; si crece, habría que poner un límite por usuario.
-
 ## Instalarla en el móvil
 
 El navegador solo deja instalar webs servidas por **https** (o desde `localhost`), así que en el móvil se instala desde la versión publicada en Vercel:
