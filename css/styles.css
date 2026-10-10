@@ -507,3 +507,5 @@ select {
 .app .nav__links a, .app .footer { display: none; }
 .app main { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 .app .toast { bottom: calc(72px + env(safe-area-inset-bottom)); }
+.guardar-foto { display: flex; gap: 8px; align-items: center; font-size: 15px; color: var(--text-2); cursor: pointer; }
+.guardar-foto input { width: 18px; height: 18px; margin: 0; }

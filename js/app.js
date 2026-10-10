@@ -297,13 +297,12 @@ async function vistaReceta(id) {
   });
 }
 
-async function vistaFormulario(id, q = new URLSearchParams()) {
+async function vistaFormulario(id) {
   if (!usuario) return vistaEntrar();
   const r = id ? await store.get(id) : null;
   if (id && !r) return vistaNoEncontrada();
   const x = r ?? { momento: momentoAhora(), tipo: 'sana', ingredientes: [], pasos: [] };
   let fotoNueva = null, fotoUrl = null;
-  let extra = {}; // datos que no pasan por la IA (vídeo e imagen de una receta de Descubrir)
 
   const radios = (name, opciones, actual) => `
     <div class="segmented" role="radiogroup">
@@ -455,12 +454,10 @@ async function vistaFormulario(id, q = new URLSearchParams()) {
       set('video_url', d.video_url); set('autor_video', d.autor_video);
       if (MOMENTOS.includes(d.momento)) f.elements.momento.value = d.momento;
       if (TIPOS.includes(d.tipo)) f.elements.tipo.value = d.tipo;
-      if (extra.video_url && !f.elements.video_url.value) f.elements.video_url.value = extra.video_url;
       try {
         const blob = d.imagen ? await store.resizeImage(await store.dataURLToBlob(d.imagen))
           : archivo ? await store.resizeImage(await fotograma(archivo)) : null;
         if (blob) sugerirFoto(URL.createObjectURL(blob), () => ponerFoto(blob));
-        else if (extra.imagen) sugerirFoto(extra.imagen, () => ponerUrl(extra.imagen));
       } catch { /* sin imagen legible: se puede subir una foto a mano */ }
       estado.textContent = d.nota || 'Listo. Revisa los datos y guarda.';
       estado.classList.add(d.nota ? 'importar__estado--aviso' : 'importar__estado--ok');
@@ -471,18 +468,6 @@ async function vistaFormulario(id, q = new URLSearchParams()) {
       btn.disabled = false;
     }
   });
-
-  // Viene de Descubrir: se importa solo (la IA traduce y clasifica) y el usuario revisa.
-  const idMundo = !r && q.get('descubrir');
-  if (idMundo) {
-    const m = await platoMundo(idMundo);
-    if (m) {
-      const fi = document.getElementById('fImportar');
-      fi.texto.value = textoPlato(m);
-      extra = { video_url: m.strYoutube || '', imagen: m.strMealThumb || '' };
-      fi.requestSubmit();
-    }
-  }
 
   f.addEventListener('submit', async e => {
     e.preventDefault();
@@ -819,9 +804,11 @@ async function vistaPlatoMundo(id) {
           ${m.strSource ? `<a class="link-more" href="${esc(m.strSource)}" target="_blank" rel="noopener">Receta original</a>` : ''}
         </p>
         <div class="receta__plan">
-          <a class="btn btn--primary" href="#/nueva?descubrir=${esc(m.idMeal)}">Guardar en mis recetas</a>
+          <button class="btn btn--primary" type="button" id="guardarPlato">Guardar en mis recetas</button>
           <a class="btn btn--secondary" href="#/descubrir?p=${encodeURIComponent(m.strArea)}">Más de ${esc(pais(m.strArea))}</a>
         </div>
+        <label class="guardar-foto"><input type="checkbox" id="conFoto"> Guardar también la foto</label>
+        <p class="importar__estado" id="estadoPlato" role="status"></p>
       </header>
       <div class="receta__media wrap"><img class="foto receta__foto" src="${esc(m.strMealThumb)}" alt=""></div>
       <div class="receta__body wrap">
@@ -836,6 +823,32 @@ async function vistaPlatoMundo(id) {
       </div>
     </article>`;
   document.title = `${m.strMeal} | Sartén`;
+
+  // La IA traduce y clasifica; se guarda tal cual y luego se puede editar.
+  document.getElementById('guardarPlato').addEventListener('click', async e => {
+    const estado = document.getElementById('estadoPlato');
+    e.target.disabled = true;
+    estado.className = 'importar__estado';
+    estado.textContent = 'Traduciendo y guardando…';
+    try {
+      const d = await store.importar({ texto: textoPlato(m) });
+      const id = await store.save({
+        titulo: d.titulo, descripcion: d.descripcion ?? '',
+        momento: MOMENTOS.includes(d.momento) ? d.momento : 'comida',
+        tipo: TIPOS.includes(d.tipo) ? d.tipo : 'sana',
+        tiempo_min: d.tiempo_min || null, raciones: d.raciones || null,
+        ingredientes: d.ingredientes ?? [], pasos: d.pasos ?? [],
+        video_url: m.strYoutube || '', autor_video: '',
+        foto_url: document.getElementById('conFoto').checked ? m.strMealThumb : '',
+      });
+      toast('Guardada en tus recetas');
+      location.hash = `#/receta/${id}`;
+    } catch (err) {
+      estado.textContent = err.message;
+      estado.classList.add('importar__estado--error');
+      e.target.disabled = false;
+    }
+  });
 }
 
 /* ---------- cuentas ---------- */
@@ -900,7 +913,7 @@ async function router() {
       case 'lista': await vistaLista(q); break;
       case 'explorar': await vistaExplorar(q); break;
       case 'receta': await vistaReceta(partes[1]); break;
-      case 'nueva': await vistaFormulario(undefined, q); break;
+      case 'nueva': await vistaFormulario(); break;
       case 'descubrir': await (partes[1] ? vistaPlatoMundo(partes[1]) : vistaDescubrir(q)); break;
       case 'editar': await vistaFormulario(partes[1]); break;
       case 'entrar': location.hash = '#/'; break;
