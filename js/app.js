@@ -79,11 +79,8 @@ async function fotograma(archivo) {
 
 /* ---------- componentes ---------- */
 
-function foto(r, cls = '') {
-  return r.foto_url
-    ? `<img class="foto ${cls}" src="${esc(r.foto_url)}" alt="" loading="lazy">`
-    : `<div class="foto foto--vacia foto--${r.momento} ${cls}" aria-hidden="true"><span>${esc(r.titulo.charAt(0))}</span></div>`;
-}
+// Las fotos solo aparecen si el usuario ha elegido una; sin foto no se reserva hueco.
+const foto = (r, cls = '') => r.foto_url ? `<img class="foto ${cls}" src="${esc(r.foto_url)}" alt="" loading="lazy">` : '';
 
 function chips(r) {
   return `<span class="chip chip--${r.tipo}">${ETIQUETA_TIPO[r.tipo]}</span>
@@ -98,6 +95,7 @@ const tarjeta = r => `
     <div class="card__body">
       <div class="chips">${chips(r)}</div>
       <h3 class="card__titulo">${esc(r.titulo)}</h3>
+      ${r.descripcion ? `<p class="card__desc">${esc(r.descripcion)}</p>` : ''}
     </div>
   </a>`;
 
@@ -230,12 +228,13 @@ async function vistaReceta(id) {
         </div>
       </header>
 
-      <div class="receta__media wrap ${v ? 'receta__media--video' : ''}">
+      ${r.foto_url || v ? `
+      <div class="receta__media wrap ${r.foto_url && v ? 'receta__media--video' : ''}">
         ${foto(r, 'receta__foto')}
         ${v ? `<div class="video ${v.vertical ? 'video--vertical' : ''}">
           <iframe src="${esc(v.src)}" title="Vídeo original en ${v.red}" loading="lazy"
             allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>` : ''}
-      </div>
+      </div>` : ''}
 
       <div class="receta__body wrap">
         <section class="ingredientes">
@@ -298,12 +297,13 @@ async function vistaReceta(id) {
   });
 }
 
-async function vistaFormulario(id) {
+async function vistaFormulario(id, q = new URLSearchParams()) {
   if (!usuario) return vistaEntrar();
   const r = id ? await store.get(id) : null;
   if (id && !r) return vistaNoEncontrada();
   const x = r ?? { momento: momentoAhora(), tipo: 'sana', ingredientes: [], pasos: [] };
   let fotoNueva = null, fotoUrl = null;
+  let extra = {}; // datos que no pasan por la IA (vídeo e imagen de una receta de Descubrir)
 
   const radios = (name, opciones, actual) => `
     <div class="segmented" role="radiogroup">
@@ -341,7 +341,10 @@ async function vistaFormulario(id) {
           <span id="fotoPrev">${x.foto_url ? `<img src="${esc(x.foto_url)}" alt="">` : 'Añadir foto'}</span>
         </label>
         <input id="inFoto" type="file" accept="image/*" hidden>
-        <button class="btn btn--secondary" type="button" id="buscarFoto">Buscar foto en internet</button>
+        <div class="form__foto-acciones">
+          <button class="btn btn--secondary" type="button" id="buscarFoto">Buscar foto en internet</button>
+          <button class="btn btn--danger" type="button" id="quitarFoto" ${x.foto_url ? '' : 'hidden'}>Quitar foto</button>
+        </div>
         <div class="fotos-web" id="fotosWeb" hidden></div>
       </div>
 
@@ -376,10 +379,18 @@ async function vistaFormulario(id) {
 
   const f = document.getElementById('fReceta');
   const prev = document.getElementById('fotoPrev');
+  const quitar = document.getElementById('quitarFoto');
   const ponerFoto = blob => {
     fotoNueva = blob; fotoUrl = null;
     prev.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="">`;
+    quitar.hidden = false;
   };
+  const ponerUrl = u => {
+    fotoUrl = u; fotoNueva = null;
+    prev.innerHTML = u ? `<img src="${esc(u)}" alt="">` : 'Añadir foto';
+    quitar.hidden = !u;
+  };
+  quitar.addEventListener('click', () => ponerUrl(''));
 
   document.getElementById('inFoto').addEventListener('change', async e => {
     const file = e.target.files[0];
@@ -387,6 +398,13 @@ async function vistaFormulario(id) {
   });
 
   const web = document.getElementById('fotosWeb');
+  // La imagen que trae una receta importada solo se usa si el usuario la toca.
+  const sugerirFoto = (src, usar) => {
+    web.hidden = false;
+    web.innerHTML = `<p>La receta trae una imagen. Tócala si quieres usarla como foto.</p>
+      <div class="fotos-web__grid"><button type="button" id="usarSugerida" aria-label="Usar esta imagen"><img src="${esc(src)}" alt=""></button></div>`;
+    document.getElementById('usarSugerida').addEventListener('click', () => { usar(); web.hidden = true; });
+  };
   document.getElementById('buscarFoto').addEventListener('click', async e => {
     const q = f.elements.titulo.value.trim();
     web.hidden = false;
@@ -402,8 +420,7 @@ async function vistaFormulario(id) {
         <p>Fotos de <a href="https://www.pexels.com" target="_blank" rel="noopener">Pexels</a>. Toca una para usarla.</p>`
         : '<p>No hay fotos para ese nombre. Prueba con algo más general, como «hamburguesa».</p>';
       web.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => {
-        fotoUrl = fotos[b.dataset.i].src; fotoNueva = null;
-        prev.innerHTML = `<img src="${esc(fotoUrl)}" alt="">`;
+        ponerUrl(fotos[b.dataset.i].src);
         web.hidden = true;
       }));
     } catch (err) {
@@ -438,9 +455,12 @@ async function vistaFormulario(id) {
       set('video_url', d.video_url); set('autor_video', d.autor_video);
       if (MOMENTOS.includes(d.momento)) f.elements.momento.value = d.momento;
       if (TIPOS.includes(d.tipo)) f.elements.tipo.value = d.tipo;
+      if (extra.video_url && !f.elements.video_url.value) f.elements.video_url.value = extra.video_url;
       try {
-        if (d.imagen) ponerFoto(await store.resizeImage(await store.dataURLToBlob(d.imagen)));
-        else if (archivo) ponerFoto(await store.resizeImage(await fotograma(archivo)));
+        const blob = d.imagen ? await store.resizeImage(await store.dataURLToBlob(d.imagen))
+          : archivo ? await store.resizeImage(await fotograma(archivo)) : null;
+        if (blob) sugerirFoto(URL.createObjectURL(blob), () => ponerFoto(blob));
+        else if (extra.imagen) sugerirFoto(extra.imagen, () => ponerUrl(extra.imagen));
       } catch { /* sin imagen legible: se puede subir una foto a mano */ }
       estado.textContent = d.nota || 'Listo. Revisa los datos y guarda.';
       estado.classList.add(d.nota ? 'importar__estado--aviso' : 'importar__estado--ok');
@@ -451,6 +471,18 @@ async function vistaFormulario(id) {
       btn.disabled = false;
     }
   });
+
+  // Viene de Descubrir: se importa solo (la IA traduce y clasifica) y el usuario revisa.
+  const idMundo = !r && q.get('descubrir');
+  if (idMundo) {
+    const m = await platoMundo(idMundo);
+    if (m) {
+      const fi = document.getElementById('fImportar');
+      fi.texto.value = textoPlato(m);
+      extra = { video_url: m.strYoutube || '', imagen: m.strMealThumb || '' };
+      fi.requestSubmit();
+    }
+  }
 
   f.addEventListener('submit', async e => {
     e.preventDefault();
@@ -474,7 +506,6 @@ async function vistaFormulario(id) {
     const btn = f.querySelector('[type=submit]');
     btn.disabled = true;
     try {
-      if (!fotoNueva && !receta.foto_url) receta.foto_url = await fotoAuto(receta.titulo);
       const nuevoId = await store.save(receta, fotoNueva);
       toast('Receta guardada');
       location.hash = `#/receta/${nuevoId}`;
@@ -717,6 +748,96 @@ async function vistaLista(q) {
   });
 }
 
+/* ---------- descubrir: platos de otros países (TheMealDB) ---------- */
+
+// API abierta y gratuita; la clave "1" es la de pruebas, válida para proyectos personales y educativos.
+const MEALDB = 'https://www.themealdb.com/api/json/v1/1/';
+async function mealdb(ruta) {
+  const r = await fetch(MEALDB + ruta).catch(() => null);
+  if (!r?.ok) throw new Error('No se ha podido conectar con TheMealDB. Comprueba la conexión y prueba otra vez.');
+  return r.json();
+}
+const platoMundo = async id => (await mealdb(`lookup.php?i=${encodeURIComponent(id)}`)).meals?.[0] ?? null;
+
+const PAISES = {
+  Algerian: 'Argelia', American: 'Estados Unidos', Argentinian: 'Argentina', Australian: 'Australia', British: 'Reino Unido',
+  Canadian: 'Canadá', Chinese: 'China', Croatian: 'Croacia', Dutch: 'Países Bajos', Egyptian: 'Egipto', Filipino: 'Filipinas',
+  French: 'Francia', Greek: 'Grecia', Indian: 'India', Irish: 'Irlanda', Italian: 'Italia', Jamaican: 'Jamaica',
+  Japanese: 'Japón', Kenyan: 'Kenia', Malaysian: 'Malasia', Mexican: 'México', Moroccan: 'Marruecos', Norwegian: 'Noruega',
+  Polish: 'Polonia', Portuguese: 'Portugal', Russian: 'Rusia', 'Saudi Arabian': 'Arabia Saudí', Slovakian: 'Eslovaquia',
+  Spanish: 'España', Syrian: 'Siria', Thai: 'Tailandia', Tunisian: 'Túnez', Turkish: 'Turquía', Ukrainian: 'Ucrania',
+  Uruguayan: 'Uruguay', Venezulan: 'Venezuela', Vietnamese: 'Vietnam',
+};
+const pais = a => PAISES[a] ?? a;
+
+const ingredientesPlato = m => Array.from({ length: 20 }, (_, i) => [m[`strMeasure${i + 1}`], m[`strIngredient${i + 1}`]])
+  .filter(([, ing]) => ing?.trim()).map(([medida, ing]) => `${medida?.trim() ?? ''} ${ing.trim()}`.trim());
+const pasosPlato = m => (m.strInstructions ?? '').split(/\r?\n+/)
+  .map(p => p.replace(/^\s*(?:step\s*\d+[:.]?|\d+[.)])\s*/i, '').trim()).filter(p => p.length > 3);
+const textoPlato = m => `Receta típica de ${pais(m.strArea)} (${m.strCategory}): ${m.strMeal}
+Ingredientes:
+${ingredientesPlato(m).map(x => `- ${x}`).join('\n')}
+Preparación:
+${pasosPlato(m).join('\n')}`;
+
+async function vistaDescubrir(q) {
+  const elegido = q.get('p') || 'Italian';
+  const [{ meals: areas }, { meals }] = await Promise.all([
+    mealdb('list.php?a=list'),
+    mealdb(`filter.php?a=${encodeURIComponent(elegido)}`),
+  ]);
+  const lista = areas.map(a => a.strArea).filter(a => a !== 'Unknown').sort((a, b) => pais(a).localeCompare(pais(b), 'es'));
+
+  $app.innerHTML = `
+    <section class="page-head wrap">
+      <h1>Descubrir</h1>
+      <p class="semana__ayuda">Platos típicos de ${lista.length} países, de la base de datos abierta TheMealDB. Vienen en inglés: al guardar uno en tus recetas, la IA lo traduce.</p>
+    </section>
+    <nav class="paises" aria-label="Países">${lista.map(a => `
+      <a class="pais" href="#/descubrir?p=${encodeURIComponent(a)}" ${a === elegido ? 'aria-current="page"' : ''}>${esc(pais(a))}</a>`).join('')}
+    </nav>
+    <section class="grid wrap">${(meals ?? []).map(m => `
+      <a class="card" href="#/descubrir/${esc(m.idMeal)}">
+        <img class="foto card__foto" src="${esc(m.strMealThumb)}" alt="" loading="lazy">
+        <div class="card__body"><h3 class="card__titulo">${esc(m.strMeal)}</h3></div>
+      </a>`).join('') || '<p class="grid__empty">No hay platos de este país.</p>'}
+    </section>`;
+  document.title = `Descubrir: ${pais(elegido)} | Sartén`;
+  requestAnimationFrame(() => $app.querySelector('.pais[aria-current]')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
+}
+
+async function vistaPlatoMundo(id) {
+  const m = await platoMundo(id);
+  if (!m) return vistaNoEncontrada();
+  $app.innerHTML = `
+    <article class="receta">
+      <header class="receta__hero wrap">
+        <div class="chips"><span class="chip">${esc(pais(m.strArea))}</span>${m.strCategory ? `<span class="chip">${esc(m.strCategory)}</span>` : ''}</div>
+        <h1>${esc(m.strMeal)}</h1>
+        <p class="receta__meta">
+          ${m.strYoutube ? `<a class="link-more" href="${esc(m.strYoutube)}" target="_blank" rel="noopener">Ver el vídeo en YouTube</a>` : ''}
+          ${m.strSource ? `<a class="link-more" href="${esc(m.strSource)}" target="_blank" rel="noopener">Receta original</a>` : ''}
+        </p>
+        <div class="receta__plan">
+          <a class="btn btn--primary" href="#/nueva?descubrir=${esc(m.idMeal)}">Guardar en mis recetas</a>
+          <a class="btn btn--secondary" href="#/descubrir?p=${encodeURIComponent(m.strArea)}">Más de ${esc(pais(m.strArea))}</a>
+        </div>
+      </header>
+      <div class="receta__media wrap"><img class="foto receta__foto" src="${esc(m.strMealThumb)}" alt=""></div>
+      <div class="receta__body wrap">
+        <section class="ingredientes">
+          <h2>Ingredientes</h2>
+          <ul>${ingredientesPlato(m).map(x => `<li><label><input type="checkbox"><span>${esc(x)}</span></label></li>`).join('')}</ul>
+        </section>
+        <section class="pasos">
+          <h2>Preparación</h2>
+          <ol>${pasosPlato(m).map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+        </section>
+      </div>
+    </article>`;
+  document.title = `${m.strMeal} | Sartén`;
+}
+
 /* ---------- cuentas ---------- */
 
 function vistaEntrar() {
@@ -760,25 +881,6 @@ function vistaNoEncontrada() {
     </section>`;
 }
 
-/* ---------- fotos automáticas ---------- */
-
-// Primera foto de Pexels para el plato, o '' si no hay (o no está configurado).
-const fotoAuto = titulo => store.buscarFotos(titulo).then(f => f[0]?.src ?? '', () => '');
-
-// Pone foto a las recetas que no tienen. Solo con sesión, porque guarda cambios.
-async function rellenarFotos() {
-  if (!usuario) return;
-  const sinFoto = (await store.list()).filter(r => !r.foto_url);
-  let cambios = 0;
-  for (const r of sinFoto) {
-    let fotos;
-    try { fotos = await store.buscarFotos(r.titulo); }
-    catch (err) { return toast(`No se pudieron poner las fotos: ${err.message}`); }
-    if (fotos[0]) { await store.save({ ...r, foto_url: fotos[0].src }); cambios++; }
-  }
-  if (cambios) router();
-}
-
 /* ---------- router ---------- */
 
 async function router() {
@@ -798,7 +900,8 @@ async function router() {
       case 'lista': await vistaLista(q); break;
       case 'explorar': await vistaExplorar(q); break;
       case 'receta': await vistaReceta(partes[1]); break;
-      case 'nueva': await vistaFormulario(); break;
+      case 'nueva': await vistaFormulario(undefined, q); break;
+      case 'descubrir': await (partes[1] ? vistaPlatoMundo(partes[1]) : vistaDescubrir(q)); break;
       case 'editar': await vistaFormulario(partes[1]); break;
       case 'entrar': location.hash = '#/'; break;
       default: vistaNoEncontrada();
@@ -822,6 +925,9 @@ $auth.addEventListener('click', async () => {
   toast('Sesión cerrada');
 });
 
+// Instalada como app (pantalla de inicio): barra de pestañas abajo en vez del menú de arriba.
+document.documentElement.classList.toggle('app', matchMedia('(display-mode: standalone)').matches || navigator.standalone === true);
+
 await store.init();
 usuario = await store.user();
 store.onAuth(u => {
@@ -832,6 +938,5 @@ store.onAuth(u => {
 pintarAuth();
 window.addEventListener('hashchange', router);
 router();
-rellenarFotos();
 // Instalable como app y disponible sin conexión (solo en https o localhost).
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(err => console.warn('Sin modo offline:', err));

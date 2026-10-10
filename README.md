@@ -6,7 +6,8 @@ El diseño está inspirado en las páginas de producto de Apple: tipografía gra
 
 ## Qué hace
 
-- **Recetario**: fotos, ingredientes que se van tachando, pasos y el vídeo original al lado. Las cantidades se recalculan si cambias las raciones.
+- **Recetario**: ingredientes que se van tachando, pasos y el vídeo original al lado. Las cantidades se recalculan si cambias las raciones. La foto es opcional: solo aparece si la subes o eliges una (de Pexels o la que trae la receta importada).
+- **Descubrir**: platos típicos de unos 30 países sacados de [TheMealDB](https://www.themealdb.com), una base de datos abierta. *Guardar en mis recetas* lo pasa por la IA, que lo traduce al español y lo clasifica.
 - **Importar con IA** desde:
   - **TikTok**: lee la descripción del vídeo.
   - **YouTube**: Gemini ve el vídeo entero desde el enlace.
@@ -15,7 +16,7 @@ El diseño está inspirado en las páginas de producto de Apple: tipografía gra
   - **Un vídeo subido**: Gemini lo ve y lo escucha. Es la solución cuando la receta solo se cuenta hablando.
 - **Semana**: planificas desayuno, comida, merienda y cena; marcas lo que has cocinado; *Rellenar huecos* propone comidas y cenas empezando por lo que hace más tiempo que no haces.
 - **Lista de la compra**: junta los ingredientes de lo planificado y de las recetas que añadas, suma los repetidos (`200 g de arroz` + `0,1 kg de arroz` → `300 g de arroz`), escala las cantidades a las personas que elijas y se copia para mandarla por WhatsApp.
-- **App en el móvil (PWA)**: se instala en la pantalla de inicio, abre a pantalla completa y funciona sin conexión.
+- **App en el móvil (PWA)**: se instala en la pantalla de inicio, abre a pantalla completa, funciona sin conexión y, instalada, tiene una barra de pestañas abajo (recetas, descubrir, añadir, semana y lista).
 - **Cuentas**: con Supabase, cada persona tiene su recetario, su calendario y sus fotos, privados.
 
 ## Tecnologías
@@ -26,6 +27,7 @@ El diseño está inspirado en las páginas de producto de Apple: tipografía gra
 | Datos, cuentas y fotos | [Supabase](https://supabase.com) (Postgres + Auth + Storage) | Capa gratuita, se usa desde el navegador y la seguridad va en la base de datos (RLS) |
 | IA | [Gemini API](https://aistudio.google.com) (modelo Flash) | Capa gratuita, entiende texto, imágenes y vídeo, y devuelve JSON con esquema |
 | Fotos | [Pexels API](https://www.pexels.com/api/) | Fotos de platos gratis y con licencia libre |
+| Platos del mundo | [TheMealDB](https://www.themealdb.com/api.php) | API abierta; la clave de pruebas `1` vale para proyectos personales y educativos |
 | Servidor | Funciones serverless en [Vercel](https://vercel.com) (`api/`) | Las claves de la IA y de Pexels no pueden estar en el navegador |
 
 ## Cómo funciona la importación
@@ -113,4 +115,4 @@ El service worker pide siempre la versión nueva a la red y solo usa lo guardado
 ## Ideas para seguir
 
 - Raciones distintas para cada comida del calendario.
-- Barra de pestañas abajo cuando se usa como app instalada.
+- Traducir también los nombres de los platos de Descubrir al navegar (ahora se traducen al guardarlos).
