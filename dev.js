@@ -29,7 +29,7 @@ createServer(async (req, res) => {
   const file = join(process.cwd(), normalize(path === '/' ? '/index.html' : path));
   try {
     const body = await readFile(file);
-    res.writeHead(200, { 'Content-Type': TIPOS[extname(file)] ?? 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': TIPOS[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(body);
   } catch {
     res.writeHead(404).end('No encontrado');

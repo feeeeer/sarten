@@ -1,5 +1,6 @@
 import * as store from './store.js';
 import { MOMENTOS, TIPOS } from './store.js';
+import { juntarIngredientes } from './lista.js';
 
 const $app = document.getElementById('app');
 const $auth = document.getElementById('authBtn');
@@ -9,6 +10,7 @@ let usuario = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const normalizarTexto = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 const ETIQUETA_TIPO = { sana: 'Sana', gocheo: 'Gocheo' };
 const PLURAL = { desayuno: 'Desayunos', comida: 'Comidas', merienda: 'Meriendas', cena: 'Cenas' };
 
@@ -27,6 +29,17 @@ function momentoAhora(h = new Date().getHours()) {
   return 'cena';
 }
 
+/* ---------- fechas (siempre 'AAAA-MM-DD' en hora local) ---------- */
+
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const aFecha = s => { const [a, m, d] = s.split('-').map(Number); return new Date(a, m - 1, d); };
+const hoy = () => iso(new Date());
+const sumarDias = (s, n) => { const d = aFecha(s); d.setDate(d.getDate() + n); return iso(d); };
+const lunesDe = s => sumarDias(s, -((aFecha(s).getDay() + 6) % 7));
+const fechaCorta = s => aFecha(s).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+const diaSemana = s => aFecha(s).toLocaleDateString('es-ES', { weekday: 'long' });
+const semanaValida = d => /^\d{4}-\d{2}-\d{2}$/.test(d ?? '') ? lunesDe(d) : lunesDe(hoy());
+
 const FRASE_AHORA = {
   desayuno: 'Toca desayunar.', comida: 'Hora de comer.', merienda: 'Algo para merendar.', cena: '¿Qué cenamos?',
 };
@@ -43,6 +56,25 @@ export function videoEmbed(url) {
 
 function redDe(url) {
   try { return new URL(url).hostname.replace(/^www\.|^vm\.|^m\./, '').split('.')[0]; } catch { return 'vídeo'; }
+}
+
+const aDataURL = archivo => new Promise((ok, ko) => {
+  const fr = new FileReader();
+  fr.onload = () => ok(fr.result);
+  fr.onerror = () => ko(new Error('No se ha podido leer el vídeo.'));
+  fr.readAsDataURL(archivo);
+});
+
+// Saca un fotograma del vídeo (al segundo 1) para usarlo como foto de la receta.
+async function fotograma(archivo) {
+  const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, src: URL.createObjectURL(archivo) });
+  await new Promise((ok, ko) => { v.onloadeddata = ok; v.onerror = ko; });
+  v.currentTime = Math.min(1, v.duration / 2);
+  await new Promise(ok => { v.onseeked = ok; });
+  const c = Object.assign(document.createElement('canvas'), { width: v.videoWidth, height: v.videoHeight });
+  c.getContext('2d').drawImage(v, 0, 0);
+  URL.revokeObjectURL(v.src);
+  return new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.85));
 }
 
 /* ---------- componentes ---------- */
@@ -145,11 +177,10 @@ async function vistaExplorar(q) {
     <section class="grid wrap" id="grid"></section>`;
 
   const pintar = () => {
-    const needle = texto.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-    const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    const needle = normalizarTexto(texto);
     const res = recetas.filter(r =>
       (!m || r.momento === m) && (!t || r.tipo === t) &&
-      (!needle || norm(r.titulo + ' ' + r.ingredientes.join(' ')).includes(needle)));
+      (!needle || normalizarTexto(r.titulo + ' ' + r.ingredientes.join(' ')).includes(needle)));
     document.getElementById('grid').innerHTML = res.length
       ? res.map(tarjeta).join('')
       : `<p class="grid__empty">No hay recetas con estos filtros.</p>`;
@@ -169,6 +200,8 @@ async function vistaReceta(id) {
   const r = await store.get(id);
   if (!r) return vistaNoEncontrada();
   const v = videoEmbed(r.video_url);
+  const hechas = (await store.comidas()).filter(c => c.receta_id === r.id && c.hecha).map(c => c.fecha).sort();
+  const enLista = extrasLista().includes(r.id);
 
   $app.innerHTML = `
     <article class="receta">
@@ -180,6 +213,21 @@ async function vistaReceta(id) {
           ${r.raciones ? `${r.raciones} ${r.raciones === 1 ? 'ración' : 'raciones'}` : ''}
           ${r.video_url ? `<a class="link-more" href="${esc(r.video_url)}" target="_blank" rel="noopener">Ver en ${v?.red ?? cap(redDe(r.video_url))}${r.autor_video ? ` (${esc(r.autor_video)})` : ''}</a>` : ''}
         </p>
+        <p class="receta__historial">${hechas.length
+          ? `La has hecho ${hechas.length === 1 ? 'una vez' : `${hechas.length} veces`}, la última el ${fechaCorta(hechas.at(-1))}.`
+          : 'Aún no la has hecho.'}</p>
+        <div class="receta__plan">
+          <button class="btn btn--primary" type="button" id="hechaHoy">La he hecho hoy</button>
+          <details class="planificar">
+            <summary class="btn btn--secondary">Planificar</summary>
+            <form id="fPlan" class="planificar__form">
+              <input type="date" name="fecha" value="${hoy()}" required aria-label="Día">
+              <select name="momento" aria-label="Momento">${MOMENTOS.map(m => `<option value="${m}" ${m === r.momento ? 'selected' : ''}>${cap(m)}</option>`).join('')}</select>
+              <button class="btn btn--primary" type="submit">Añadir al calendario</button>
+            </form>
+          </details>
+          <button class="btn btn--secondary" type="button" id="aLista" aria-pressed="${enLista}">${enLista ? 'En la lista de la compra' : 'Añadir a la lista'}</button>
+        </div>
       </header>
 
       <div class="receta__media wrap ${v ? 'receta__media--video' : ''}">
@@ -209,6 +257,25 @@ async function vistaReceta(id) {
     </article>`;
 
   document.title = `${r.titulo} | Sartén`;
+  document.getElementById('hechaHoy').addEventListener('click', async () => {
+    await store.addComida({ fecha: hoy(), momento: momentoAhora(), receta_id: r.id, hecha: true });
+    toast('Apuntada en el calendario de hoy');
+    vistaReceta(id);
+  });
+  document.getElementById('fPlan').addEventListener('submit', async e => {
+    e.preventDefault();
+    const { fecha, momento } = Object.fromEntries(new FormData(e.target));
+    await store.addComida({ fecha, momento, receta_id: r.id, hecha: fecha < hoy() });
+    toast(`Añadida al ${diaSemana(fecha)} ${fechaCorta(fecha)}`);
+    e.target.closest('details').open = false;
+  });
+  document.getElementById('aLista').addEventListener('click', e => {
+    const dentro = extrasLista().includes(r.id);
+    guardarExtras(dentro ? extrasLista().filter(x => x !== r.id) : [...extrasLista(), r.id]);
+    e.target.setAttribute('aria-pressed', !dentro);
+    e.target.textContent = dentro ? 'Añadir a la lista' : 'En la lista de la compra';
+    toast(dentro ? 'Quitada de la lista' : 'Añadida a la lista de la compra');
+  });
   document.getElementById('borrar')?.addEventListener('click', async () => {
     if (!confirm(`¿Eliminar «${r.titulo}»? No se puede deshacer.`)) return;
     await store.remove(r.id);
@@ -236,14 +303,19 @@ async function vistaFormulario(id) {
 
     ${r ? '' : `
     <section class="importar wrap wrap--narrow">
-      <h2>Importar desde un vídeo</h2>
-      <p>Pega el enlace de TikTok, Instagram o YouTube. La IA lee la descripción del vídeo y rellena el formulario; tú revisas antes de guardar.</p>
+      <h2>Importar con IA</h2>
+      <p>Pega el enlace de un vídeo de TikTok, Instagram o YouTube, o de cualquier web de recetas. La IA rellena el formulario y tú revisas antes de guardar.</p>
       <form id="fImportar" class="importar__form">
-        <input type="url" name="url" placeholder="https://www.tiktok.com/@usuario/video/…" required aria-label="Enlace del vídeo">
-        <button class="btn btn--primary" type="submit">Importar con IA</button>
+        <input type="url" name="url" placeholder="https://www.tiktok.com/@usuario/video/…" aria-label="Enlace del vídeo o la web">
+        <button class="btn btn--primary" type="submit">Importar</button>
         <details>
           <summary>¿La receta solo se dice hablando en el vídeo?</summary>
-          <textarea name="texto" rows="4" placeholder="Pega aquí lo que dice el vídeo, un comentario fijado o tus notas. La IA lo ordenará."></textarea>
+          <div class="importar__extra">
+            <label class="field"><span>Sube el vídeo <small>hasta 12 MB; la IA lo ve y lo escucha</small></span>
+              <input type="file" name="video" accept="video/*"></label>
+            <label class="field"><span>O pega el texto <small>lo que dice el vídeo, un comentario, tus notas…</small></span>
+              <textarea name="texto" rows="4"></textarea></label>
+          </div>
         </details>
       </form>
       <p class="importar__estado" id="estadoImport" role="status"></p>
@@ -330,11 +402,21 @@ async function vistaFormulario(id) {
   document.getElementById('fImportar')?.addEventListener('submit', async e => {
     e.preventDefault();
     const fi = e.target, btn = fi.querySelector('button'), estado = document.getElementById('estadoImport');
-    btn.disabled = true;
+    const url = fi.url.value.trim(), texto = fi.texto.value.trim(), archivo = fi.video.files[0];
     estado.className = 'importar__estado';
-    estado.textContent = 'Leyendo el vídeo y preparando la receta…';
+    if (!url && !texto && !archivo) {
+      estado.textContent = 'Pega un enlace, sube un vídeo o escribe el texto de la receta.';
+      return estado.classList.add('importar__estado--error');
+    }
+    if (archivo?.size > 12e6) {
+      estado.textContent = 'El vídeo pesa más de 12 MB. Recórtalo o grábalo en menor calidad.';
+      return estado.classList.add('importar__estado--error');
+    }
+    btn.disabled = true;
+    estado.textContent = archivo ? 'Viendo el vídeo… puede tardar hasta un minuto.' : 'Leyendo y preparando la receta…';
     try {
-      const d = await store.importar(fi.url.value.trim(), fi.texto.value.trim());
+      const video = archivo ? await aDataURL(archivo) : '';
+      const d = await store.importar({ url, texto, video });
       const set = (k, v) => { if (v != null && v !== '') f.elements[k].value = v; };
       set('titulo', d.titulo); set('descripcion', d.descripcion);
       set('tiempo_min', d.tiempo_min); set('raciones', d.raciones);
@@ -342,10 +424,10 @@ async function vistaFormulario(id) {
       set('video_url', d.video_url); set('autor_video', d.autor_video);
       if (MOMENTOS.includes(d.momento)) f.elements.momento.value = d.momento;
       if (TIPOS.includes(d.tipo)) f.elements.tipo.value = d.tipo;
-      if (d.imagen) {
-        try { ponerFoto(await store.resizeImage(await store.dataURLToBlob(d.imagen))); }
-        catch { /* miniatura ilegible: se puede subir una foto a mano */ }
-      }
+      try {
+        if (d.imagen) ponerFoto(await store.resizeImage(await store.dataURLToBlob(d.imagen)));
+        else if (archivo) ponerFoto(await store.resizeImage(await fotograma(archivo)));
+      } catch { /* sin imagen legible: se puede subir una foto a mano */ }
       estado.textContent = d.nota || 'Listo. Revisa los datos y guarda.';
       estado.classList.add(d.nota ? 'importar__estado--aviso' : 'importar__estado--ok');
     } catch (err) {
@@ -389,25 +471,252 @@ async function vistaFormulario(id) {
   });
 }
 
+/* ---------- semana: plan y registro ---------- */
+
+const rangoSemana = lunes => {
+  const domingo = sumarDias(lunes, 6);
+  return aFecha(lunes).getMonth() === aFecha(domingo).getMonth()
+    ? `${aFecha(lunes).getDate()} – ${fechaCorta(domingo)}`
+    : `${fechaCorta(lunes)} – ${fechaCorta(domingo)}`;
+};
+
+const navSemana = (ruta, lunes) => `
+  <div class="semana__nav">
+    <a class="btn btn--secondary btn--icono" href="#/${ruta}?d=${sumarDias(lunes, -7)}" aria-label="Semana anterior">‹</a>
+    <span class="semana__rango">${rangoSemana(lunes)}</span>
+    <a class="btn btn--secondary btn--icono" href="#/${ruta}?d=${sumarDias(lunes, 7)}" aria-label="Semana siguiente">›</a>
+    ${lunes !== lunesDe(hoy()) ? `<a class="link-more" href="#/${ruta}">Esta semana</a>` : ''}
+  </div>`;
+
+async function vistaSemana(q) {
+  const lunes = semanaValida(q.get('d'));
+  const dias = Array.from({ length: 7 }, (_, i) => sumarDias(lunes, i));
+  const [recetas, plan] = await Promise.all([store.list(), store.comidas(lunes, dias[6])]);
+  const porId = new Map(recetas.map(r => [r.id, r]));
+  const h = hoy();
+
+  $app.innerHTML = `
+    <section class="page-head wrap">
+      <h1>Semana</h1>
+      ${navSemana('semana', lunes)}
+      <p class="semana__ayuda">Planifica lo que vas a comer y marca lo que ya has cocinado. «Rellenar huecos» propone comidas y cenas para los días que quedan, empezando por lo que hace más tiempo que no haces.</p>
+      <div class="semana__acciones">
+        <button class="btn btn--primary" type="button" id="rellenar">Rellenar huecos</button>
+        <a class="btn btn--secondary" href="#/lista?d=${lunes}">Lista de la compra</a>
+      </div>
+    </section>
+
+    <section class="semana wrap">${dias.map(d => `
+      <article class="dia ${d === h ? 'dia--hoy' : ''} ${d < h ? 'dia--pasado' : ''}">
+        <h2 class="dia__titulo">${cap(diaSemana(d))} <span>${aFecha(d).getDate()}</span>${d === h ? ' <em>Hoy</em>' : ''}</h2>
+        ${MOMENTOS.map(m => `
+        <div class="slot">
+          <h3>${cap(m)}</h3>
+          ${plan.filter(c => c.fecha === d && c.momento === m && porId.has(c.receta_id)).map(c => {
+            const r = porId.get(c.receta_id);
+            return `
+          <div class="comida ${c.hecha ? 'comida--hecha' : ''}">
+            <input type="checkbox" data-hecha="${esc(c.id)}" ${c.hecha ? 'checked' : ''} aria-label="${esc(r.titulo)} hecha">
+            ${foto(r, 'comida__foto')}
+            <a href="#/receta/${esc(r.id)}">${esc(r.titulo)}</a>
+            <button type="button" class="comida__quitar" data-quitar="${esc(c.id)}" aria-label="Quitar ${esc(r.titulo)}">×</button>
+          </div>`; }).join('')}
+          <button type="button" class="slot__add" data-dia="${d}" data-momento="${m}" aria-label="Añadir ${m} el ${diaSemana(d)}">+ Añadir</button>
+        </div>`).join('')}
+      </article>`).join('')}
+    </section>
+
+    <dialog class="selector" id="selector" aria-labelledby="selTitulo">
+      <form method="dialog" class="selector__head">
+        <h2 id="selTitulo"></h2>
+        <button class="selector__cerrar" aria-label="Cerrar">×</button>
+      </form>
+      <input class="search" type="search" placeholder="Buscar receta" id="selBuscar" aria-label="Buscar receta">
+      <label class="selector__todas"><input type="checkbox" id="selTodas"> Ver también las de otros momentos</label>
+      <div class="selector__lista" id="selLista"></div>
+    </dialog>`;
+
+  const repintar = () => vistaSemana(q);
+  const dlg = document.getElementById('selector');
+  let hueco = null;
+
+  const pintarSelector = () => {
+    const texto = normalizarTexto(document.getElementById('selBuscar').value);
+    const todas = document.getElementById('selTodas').checked;
+    const res = recetas.filter(r => (todas || r.momento === hueco.momento) && normalizarTexto(r.titulo).includes(texto));
+    document.getElementById('selLista').innerHTML = res.length ? res.map(r => `
+      <button type="button" class="selector__item" data-receta="${esc(r.id)}">
+        ${foto(r, 'comida__foto')}<span>${esc(r.titulo)}</span><span class="chip chip--${r.tipo}">${ETIQUETA_TIPO[r.tipo]}</span>
+      </button>`).join('')
+      : `<p class="grid__empty">No hay recetas${todas ? '' : ` de ${hueco.momento}`}. ${todas ? '' : 'Marca «Ver también las de otros momentos».'}</p>`;
+  };
+
+  $app.addEventListener('click', async function clic(e) {
+    if (!document.body.contains(dlg)) return $app.removeEventListener('click', clic);
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.dataset.dia) {
+      hueco = { fecha: t.dataset.dia, momento: t.dataset.momento };
+      document.getElementById('selTitulo').textContent = `${cap(hueco.momento)} del ${diaSemana(hueco.fecha)} ${aFecha(hueco.fecha).getDate()}`;
+      document.getElementById('selBuscar').value = '';
+      pintarSelector();
+      dlg.showModal();
+    } else if (t.dataset.receta) {
+      await store.addComida({ ...hueco, receta_id: t.dataset.receta, hecha: hueco.fecha < h });
+      dlg.close();
+      repintar();
+    } else if (t.dataset.quitar) {
+      await store.removeComida(t.dataset.quitar);
+      repintar();
+    }
+  });
+  $app.querySelectorAll('[data-hecha]').forEach(c => c.addEventListener('change', async () => {
+    await store.updateComida(c.dataset.hecha, { hecha: c.checked });
+    c.closest('.comida').classList.toggle('comida--hecha', c.checked);
+  }));
+  document.getElementById('selBuscar').addEventListener('input', pintarSelector);
+  document.getElementById('selTodas').addEventListener('change', pintarSelector);
+
+  document.getElementById('rellenar').addEventListener('click', async e => {
+    e.target.disabled = true;
+    const n = await rellenarHuecos(dias.filter(d => d >= h), recetas, plan);
+    toast(n ? `${n === 1 ? 'Añadida 1 comida' : `Añadidas ${n} comidas`}. Cámbialas a tu gusto.` : 'No quedan huecos de comida o cena, o faltan recetas para ellos.');
+    repintar();
+  });
+}
+
+// Rellena las comidas y cenas vacías. Primero las recetas que nunca has hecho o que hace más
+// tiempo que no haces; no repite en la semana salvo que no queden más.
+async function rellenarHuecos(dias, recetas, plan) {
+  const ultima = new Map();
+  for (const c of await store.comidas()) if ((ultima.get(c.receta_id) ?? '') < c.fecha) ultima.set(c.receta_id, c.fecha);
+  const usadas = new Set(plan.map(c => c.receta_id));
+  let n = 0;
+  for (const fecha of dias) {
+    for (const momento of ['comida', 'cena']) {
+      if (plan.some(c => c.fecha === fecha && c.momento === momento)) continue;
+      const delDia = new Set(plan.filter(c => c.fecha === fecha).map(c => c.receta_id));
+      const deMomento = recetas.filter(r => r.momento === momento && !delDia.has(r.id));
+      // Si no hay recetas de cena, vale una de comida (y al revés).
+      const base = deMomento.length ? deMomento : recetas.filter(r => ['comida', 'cena'].includes(r.momento) && !delDia.has(r.id));
+      const nuevas = base.filter(r => !usadas.has(r.id));
+      const opciones = (nuevas.length ? nuevas : base)
+        .map(r => [Math.random(), r]).sort((a, b) => a[0] - b[0]).map(([, r]) => r) // barajar para desempatar
+        .sort((a, b) => (ultima.get(a.id) ?? '').localeCompare(ultima.get(b.id) ?? ''));
+      if (!opciones.length) continue;
+      const c = { fecha, momento, receta_id: opciones[0].id, hecha: false };
+      await store.addComida(c);
+      plan.push(c);
+      usadas.add(c.receta_id);
+      n++;
+    }
+  }
+  return n;
+}
+
+/* ---------- lista de la compra ---------- */
+
+// Recetas sueltas añadidas a mano a la lista (por usuario y navegador).
+const claveExtras = () => `sarten.lista.extra.${usuario?.id ?? 'demo'}`;
+const extrasLista = () => JSON.parse(localStorage.getItem(claveExtras()) ?? '[]');
+const guardarExtras = ids => localStorage.setItem(claveExtras(), JSON.stringify(ids));
+
+async function vistaLista(q) {
+  const lunes = semanaValida(q.get('d'));
+  const h = hoy();
+  const [recetas, plan] = await Promise.all([store.list(), store.comidas(lunes, sumarDias(lunes, 6))]);
+  const porId = new Map(recetas.map(r => [r.id, r]));
+  // Lo planificado que aún no has cocinado, más las recetas sueltas.
+  const planificadas = plan.filter(c => !c.hecha && c.fecha >= h && porId.has(c.receta_id)).map(c => porId.get(c.receta_id));
+  const extras = extrasLista().map(id => porId.get(id)).filter(Boolean);
+  const incluidas = [...planificadas, ...extras];
+  const items = juntarIngredientes(incluidas.flatMap(r => r.ingredientes.map(texto => ({ texto, receta: r.titulo }))));
+
+  const claveMarcas = `sarten.lista.marcados.${usuario?.id ?? 'demo'}.${lunes}`;
+  const marcados = new Set(JSON.parse(localStorage.getItem(claveMarcas) ?? '[]'));
+  const resumen = [...new Set(planificadas)];
+
+  $app.innerHTML = `
+    <section class="page-head wrap wrap--narrow">
+      <h1>Lista de la compra</h1>
+      ${navSemana('lista', lunes)}
+      <p class="semana__ayuda">Los ingredientes de lo que tienes planificado y aún no has cocinado esta semana, más las recetas que añadas sueltas. Los repetidos se suman.</p>
+    </section>
+
+    <section class="lista wrap wrap--narrow">${incluidas.length ? `
+      <div class="lista__origen">
+        ${resumen.length ? `<p><strong>De la semana:</strong> ${resumen.map(r => esc(r.titulo)).join(', ')}.</p>` : ''}
+        ${extras.length ? `<p><strong>Sueltas:</strong></p>
+        <div class="chips">${extras.map(r => `
+          <span class="chip chip--quitable">${esc(r.titulo)}
+            <button type="button" data-quitar-extra="${esc(r.id)}" aria-label="Quitar ${esc(r.titulo)} de la lista">×</button></span>`).join('')}
+        </div>` : ''}
+      </div>
+      <div class="ingredientes">
+        <ul>${items.map(it => `
+          <li><label><input type="checkbox" data-clave="${esc(it.clave)}" ${marcados.has(it.clave) ? 'checked' : ''}>
+            <span>${esc(it.texto)}${it.recetas.length > 1 ? ` <small>${it.recetas.length} recetas</small>` : ''}</span></label></li>`).join('')}
+        </ul>
+      </div>
+      <div class="form__acciones">
+        <button class="btn btn--primary" type="button" id="copiar">Copiar lo que falta</button>
+      </div>` : `
+      <div class="empty">
+        <h2>No hay nada que comprar.</h2>
+        <p>Planifica comidas en la semana o pulsa «Añadir a la lista» en cualquier receta.</p>
+        <a class="btn btn--primary" href="#/semana?d=${lunes}">Ir a la semana</a>
+      </div>`}
+    </section>`;
+
+  $app.querySelectorAll('[data-clave]').forEach(c => c.addEventListener('change', () => {
+    c.checked ? marcados.add(c.dataset.clave) : marcados.delete(c.dataset.clave);
+    localStorage.setItem(claveMarcas, JSON.stringify([...marcados]));
+  }));
+  $app.querySelectorAll('[data-quitar-extra]').forEach(b => b.addEventListener('click', () => {
+    guardarExtras(extrasLista().filter(id => id !== b.dataset.quitarExtra));
+    vistaLista(q);
+  }));
+  document.getElementById('copiar')?.addEventListener('click', async () => {
+    const faltan = items.filter(it => !marcados.has(it.clave)).map(it => `- ${it.texto}`);
+    try {
+      await navigator.clipboard.writeText(`Lista de la compra (${rangoSemana(lunes)})\n${faltan.join('\n')}`);
+      toast('Lista copiada. Pégala donde quieras.');
+    } catch {
+      toast('El navegador no ha dejado copiar. Selecciona la lista a mano.');
+    }
+  });
+}
+
+/* ---------- cuentas ---------- */
+
 function vistaEntrar() {
   $app.innerHTML = `
     <section class="auth wrap">
-      <h1>Entrar</h1>
-      <p>Solo el dueño del recetario puede añadir y editar recetas. Te enviaremos un enlace de acceso al correo.</p>
-      <form id="fEntrar" class="auth__form">
+      <h1>Entra en Sartén.</h1>
+      <p>Tu recetario, tu semana y tu lista de la compra, en una cuenta privada.</p>
+      <form id="fEntrar" class="auth__form auth__form--cuenta">
         <input type="email" name="email" required placeholder="tu@correo.com" autocomplete="email" aria-label="Correo">
-        <button class="btn btn--primary" type="submit">Enviar enlace</button>
+        <input type="password" name="password" required minlength="6" placeholder="Contraseña (mínimo 6 caracteres)" autocomplete="current-password" aria-label="Contraseña">
+        <button class="btn btn--primary" type="submit" value="entrar">Entrar</button>
+        <button class="btn btn--secondary" type="submit" value="crear">Crear cuenta</button>
       </form>
       <p class="importar__estado" id="estadoEntrar" role="status"></p>
     </section>`;
   document.getElementById('fEntrar').addEventListener('submit', async e => {
     e.preventDefault();
     const est = document.getElementById('estadoEntrar');
+    const { email, password } = Object.fromEntries(new FormData(e.target));
+    est.className = 'importar__estado';
     try {
-      await store.signIn(e.target.email.value);
-      est.textContent = 'Revisa tu correo y abre el enlace desde este dispositivo.';
-    } catch {
-      est.textContent = 'Ese correo no tiene acceso a este recetario.';
+      if (e.submitter?.value === 'crear') {
+        const confirmar = await store.crearCuenta(email, password);
+        if (confirmar) est.textContent = 'Te hemos enviado un correo. Abre el enlace para activar la cuenta y luego entra.';
+      } else {
+        await store.entrar(email, password);
+      }
+    } catch (err) {
+      est.textContent = err.message;
+      est.classList.add('importar__estado--error');
     }
   });
 }
@@ -432,8 +741,10 @@ async function rellenarFotos() {
   const sinFoto = (await store.list()).filter(r => !r.foto_url);
   let cambios = 0;
   for (const r of sinFoto) {
-    const foto_url = await fotoAuto(r.titulo);
-    if (foto_url) { await store.save({ ...r, foto_url }); cambios++; }
+    let fotos;
+    try { fotos = await store.buscarFotos(r.titulo); }
+    catch (err) { return toast(`No se pudieron poner las fotos: ${err.message}`); }
+    if (fotos[0]) { await store.save({ ...r, foto_url: fotos[0].src }); cambios++; }
   }
   if (cambios) router();
 }
@@ -449,13 +760,17 @@ async function router() {
     a.toggleAttribute('aria-current', a.dataset.nav === (partes[0] === 'editar' ? 'nueva' : partes[0])));
 
   try {
+    // Con cuentas (Supabase), todo es privado: sin sesión solo se ve la pantalla de entrar.
+    if (store.modo === 'supabase' && !usuario) return vistaEntrar();
     switch (partes[0]) {
       case undefined: await vistaInicio(); break;
+      case 'semana': await vistaSemana(q); break;
+      case 'lista': await vistaLista(q); break;
       case 'explorar': await vistaExplorar(q); break;
       case 'receta': await vistaReceta(partes[1]); break;
       case 'nueva': await vistaFormulario(); break;
       case 'editar': await vistaFormulario(partes[1]); break;
-      case 'entrar': vistaEntrar(); break;
+      case 'entrar': location.hash = '#/'; break;
       default: vistaNoEncontrada();
     }
   } catch (err) {
@@ -467,13 +782,14 @@ async function router() {
 
 function pintarAuth() {
   if (store.modo !== 'supabase') return;
-  $auth.hidden = false;
-  $auth.textContent = usuario ? 'Salir' : 'Entrar';
+  $auth.hidden = !usuario;
+  $auth.textContent = 'Salir';
+  $auth.title = usuario ? `Salir de ${usuario.email}` : '';
 }
 
 $auth.addEventListener('click', async () => {
-  if (usuario) { await store.signOut(); toast('Sesión cerrada'); }
-  else location.hash = '#/entrar';
+  await store.salir();
+  toast('Sesión cerrada');
 });
 
 await store.init();

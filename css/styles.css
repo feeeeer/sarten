@@ -355,3 +355,103 @@ input:focus, textarea:focus { outline: none; border-color: var(--blue); box-shad
 .fotos-web__grid button { padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; aspect-ratio: 4 / 3; background: var(--bg-alt); }
 .fotos-web__grid img { width: 100%; height: 100%; object-fit: cover; transition: opacity .2s; }
 .fotos-web__grid button:hover img { opacity: .8; }
+
+/* ---------- importar: vídeo o texto ---------- */
+
+.importar__extra { display: grid; gap: 14px; margin-top: 12px; }
+.importar__extra input[type=file] { font: inherit; font-size: 15px; color: var(--text-2); }
+
+/* ---------- receta: historial y acciones ---------- */
+
+.receta__historial { margin: 0; color: var(--text-2); font-size: 15px; }
+.receta__plan { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; margin-top: 6px; }
+.planificar summary { list-style: none; }
+.planificar summary::-webkit-details-marker { display: none; }
+.planificar[open] summary { background: var(--surface); border-color: var(--blue); }
+.planificar__form {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 14px;
+  background: var(--bg-alt); border-radius: var(--radius);
+}
+.planificar__form input, .planificar__form select { width: auto !important; min-height: 44px; }
+select {
+  font: inherit; font-size: 17px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; min-height: 48px;
+}
+#aLista[aria-pressed="true"] { background: var(--sana-bg); color: var(--sana); border-color: transparent; }
+
+/* ---------- semana ---------- */
+
+.btn--icono { width: 44px; padding: 0; font-size: 22px; }
+.semana__nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.semana__rango { font-size: 21px; font-weight: 600; min-width: 11ch; text-align: center; }
+.semana__ayuda { margin: 0; color: var(--text-2); max-width: 62ch; }
+.semana__acciones { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.semana {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+  gap: 14px; padding-bottom: 80px;
+}
+.dia { background: var(--surface); border-radius: var(--radius); padding: 18px 16px 10px; box-shadow: var(--shadow); }
+.dia--hoy { outline: 2px solid var(--blue); }
+.dia--pasado .dia__titulo { color: var(--text-2); }
+.dia__titulo { font-size: 21px; font-weight: 700; margin-bottom: 8px; display: flex; gap: 6px; align-items: baseline; }
+.dia__titulo span { color: var(--text-2); font-weight: 500; }
+.dia__titulo em { font-style: normal; font-size: 12px; font-weight: 600; color: #fff; background: var(--blue); padding: 2px 8px; border-radius: 980px; margin-left: auto; }
+
+.slot { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); padding: 10px 0; display: grid; gap: 6px; }
+.slot h3 { font-size: 12px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
+.slot__add {
+  justify-self: start; background: none; border: 0; padding: 4px 0; cursor: pointer;
+  font: inherit; font-size: 14px; color: var(--blue-link); opacity: .75;
+}
+.slot__add:hover { opacity: 1; }
+
+.comida { display: grid; grid-template-columns: auto 32px 1fr auto; gap: 8px; align-items: center; font-size: 15px; line-height: 1.25; }
+.comida a { color: var(--text); }
+.comida--hecha a { color: var(--text-2); }
+.comida input { width: 20px; height: 20px; margin: 0; accent-color: var(--sana); }
+.comida__foto { width: 32px; height: 32px; border-radius: 8px; }
+.comida__foto.foto--vacia span { font-size: 15px; }
+.comida__quitar { background: none; border: 0; color: var(--text-2); font-size: 20px; line-height: 1; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.comida__quitar:hover { color: var(--red); background: var(--bg-alt); }
+
+/* selector de recetas (diálogo nativo) */
+.selector {
+  width: min(520px, 100vw - 32px); max-height: min(640px, 100dvh - 64px);
+  border: 0; border-radius: var(--radius-lg); padding: 20px; background: var(--surface); color: var(--text);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .3);
+}
+.selector[open] { display: grid; grid-template-rows: auto auto auto 1fr; gap: 12px; }
+.selector::backdrop { background: rgba(0, 0, 0, .4); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.selector__head { display: flex; justify-content: space-between; align-items: center; }
+.selector__head h2 { font-size: 21px; }
+.selector__cerrar { background: var(--bg-alt); border: 0; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; cursor: pointer; color: var(--text); }
+.selector .search { max-width: none; }
+.selector__todas { font-size: 14px; color: var(--text-2); display: flex; gap: 8px; align-items: center; }
+.selector__lista { overflow-y: auto; display: grid; gap: 4px; align-content: start; min-height: 120px; }
+.selector__item {
+  display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; text-align: left;
+  font: inherit; font-size: 16px; color: var(--text); background: none; border: 0; padding: 8px; border-radius: 12px; cursor: pointer;
+}
+.selector__item:hover, .selector__item:focus-visible { background: var(--bg-alt); }
+
+/* ---------- lista de la compra ---------- */
+
+.lista { padding-bottom: 80px; display: grid; gap: 20px; }
+.lista__origen { display: grid; gap: 8px; color: var(--text-2); font-size: 15px; }
+.lista__origen p { margin: 0; }
+.lista .ingredientes small { color: var(--text-2); font-size: 13px; margin-left: 6px; }
+.lista .empty { padding-block: 24px; }
+.chip--quitable { display: inline-flex; align-items: center; gap: 4px; padding-right: 4px; font-size: 14px; }
+.chip--quitable button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 16px; padding: 0 4px; }
+
+/* ---------- cuentas ---------- */
+
+.auth__form--cuenta { display: grid; grid-template-columns: 1fr 1fr; width: min(460px, 100%); }
+.auth__form--cuenta input { grid-column: 1 / -1; }
+
+@media (max-width: 734px) {
+  .nav__logo span { display: none; }
+  .nav__links { gap: 16px; }
+  .auth__form--cuenta { grid-template-columns: 1fr; }
+}

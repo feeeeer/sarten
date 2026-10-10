@@ -2,10 +2,11 @@
   "name": "sarten",
   "version": "1.0.0",
   "private": true,
-  "description": "Recetario personal con importación de recetas desde vídeos de TikTok mediante IA",
+  "description": "Recetario personal: importa recetas con IA desde TikTok, Instagram, YouTube o cualquier web, planifica la semana y saca la lista de la compra",
   "type": "module",
   "scripts": {
-    "dev": "node dev.js"
+    "dev": "node dev.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20.12"

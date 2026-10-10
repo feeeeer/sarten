@@ -42,7 +42,8 @@ export async function save(receta, foto) {
     return r.id ?? all.at(-1).id;
   }
   if (foto) {
-    const path = `${crypto.randomUUID()}.jpg`;
+    // Cada usuario sube a su carpeta: las políticas de Storage solo le dejan borrar lo suyo.
+    const path = `${(await user()).id}/${crypto.randomUUID()}.jpg`;
     const { error } = await sb.storage.from('fotos').upload(path, foto, { contentType: 'image/jpeg' });
     if (error) throw error;
     r.foto_url = sb.storage.from('fotos').getPublicUrl(path).data.publicUrl;
@@ -53,15 +54,51 @@ export async function save(receta, foto) {
 }
 
 export async function remove(id) {
-  if (!sb) return demoWrite(demoRead().filter(r => r.id !== id));
+  if (!sb) {
+    demoWrite(demoRead().filter(r => r.id !== id));
+    return guardar(KEY_COMIDAS, leer(KEY_COMIDAS).filter(c => c.receta_id !== id));
+  }
+  // En Supabase, sus comidas del calendario se borran solas (on delete cascade).
   const { error } = await sb.from('recetas').delete().eq('id', id);
   if (error) throw error;
 }
 
-/* ---------- Sesión (solo con Supabase) ---------- */
+/* ---------- Calendario: comidas planificadas o ya hechas ---------- */
+// Una comida = { id, fecha: 'AAAA-MM-DD', momento, receta_id, hecha }
+
+export async function comidas(desde, hasta) {
+  if (!sb) return leer(KEY_COMIDAS).filter(c => (!desde || c.fecha >= desde) && (!hasta || c.fecha <= hasta));
+  let q = sb.from('comidas').select('*').order('fecha');
+  if (desde) q = q.gte('fecha', desde);
+  if (hasta) q = q.lte('fecha', hasta);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data;
+}
+
+export async function addComida({ fecha, momento, receta_id, hecha = false }) {
+  const c = { fecha, momento, receta_id, hecha };
+  if (!sb) return guardar(KEY_COMIDAS, [...leer(KEY_COMIDAS), { ...c, id: crypto.randomUUID() }]);
+  const { error } = await sb.from('comidas').insert(c);
+  if (error) throw error;
+}
+
+export async function updateComida(id, cambios) {
+  if (!sb) return guardar(KEY_COMIDAS, leer(KEY_COMIDAS).map(c => c.id === id ? { ...c, ...cambios } : c));
+  const { error } = await sb.from('comidas').update(cambios).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeComida(id) {
+  if (!sb) return guardar(KEY_COMIDAS, leer(KEY_COMIDAS).filter(c => c.id !== id));
+  const { error } = await sb.from('comidas').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------- Cuentas (solo con Supabase) ---------- */
 
 export async function user() {
-  if (!sb) return { email: 'demo' };
+  if (!sb) return { id: 'demo', email: 'demo' };
   return (await sb.auth.getSession()).data.session?.user ?? null;
 }
 
@@ -69,31 +106,50 @@ export function onAuth(cb) {
   sb?.auth.onAuthStateChange((_e, s) => cb(s?.user ?? null));
 }
 
-export async function signIn(email) {
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname },
-  });
-  if (error) throw error;
+const ERRORES_AUTH = {
+  invalid_credentials: 'El correo o la contraseña no son correctos.',
+  email_not_confirmed: 'Confirma tu cuenta con el enlace que te enviamos por correo.',
+  user_already_exists: 'Ya hay una cuenta con ese correo. Entra con tu contraseña.',
+  weak_password: 'La contraseña tiene que tener al menos 6 caracteres.',
+  over_email_send_rate_limit: 'Se han enviado demasiados correos. Prueba dentro de un rato.',
+};
+const errorAuth = e => new Error(ERRORES_AUTH[e.code] ?? e.message);
+
+export async function entrar(email, password) {
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw errorAuth(error);
 }
 
-export const signOut = () => sb?.auth.signOut();
+// Devuelve true si Supabase pide confirmar el correo antes de entrar.
+export async function crearCuenta(email, password) {
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+  if (error) throw errorAuth(error);
+  return !data.session;
+}
 
-/* ---------- Importar desde vídeo (función /api/importar) ---------- */
+export const salir = () => sb?.auth.signOut();
 
-export async function importar(url, texto) {
-  const headers = { 'Content-Type': 'application/json' };
+/* ---------- Funciones del servidor (/api) ---------- */
+
+async function cabeceras() {
   const token = sb && (await sb.auth.getSession()).data.session?.access_token;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch('api/importar', { method: 'POST', headers, body: JSON.stringify({ url, texto }) });
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// { url?, texto?, video? (data URL) } → receta
+export async function importar(datos) {
+  const res = await fetch('api/importar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await cabeceras()) },
+    body: JSON.stringify(datos),
+  });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || 'La importación no está disponible. Arranca el proyecto con "npx vercel dev".');
+  if (!res.ok) throw new Error(body.error || 'La importación no está disponible. Arranca el proyecto con "npm run dev".');
   return body;
 }
 
 export async function buscarFotos(q) {
-  const token = sb && (await sb.auth.getSession()).data.session?.access_token;
-  const res = await fetch(`api/fotos?q=${encodeURIComponent(q)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(`api/fotos?q=${encodeURIComponent(q)}`, { headers: await cabeceras() });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || 'La búsqueda de fotos no está disponible. Arranca el proyecto con "npm run dev".');
   return body;
@@ -130,8 +186,15 @@ function demoRead() {
 }
 
 function demoWrite(all) {
+  guardar(KEY, all);
+}
+
+const KEY_COMIDAS = 'sarten.comidas';
+const leer = k => JSON.parse(localStorage.getItem(k) ?? '[]');
+
+function guardar(k, valor) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(all));
+    localStorage.setItem(k, JSON.stringify(valor));
   } catch {
     throw new Error('El navegador no tiene más espacio. Configura Supabase para guardar sin límite.');
   }
